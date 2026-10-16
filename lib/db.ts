@@ -1,13 +1,21 @@
 import fs from 'fs';import crypto from 'crypto';
 const F=process.env.DB_FILE||'data/db.json';
 export type User={username:string;name:string;role:'admin'|'member';hash:string;mustChange:boolean};
-export type Task={id:string;title:string;desc:string;type:'fixed'|'weekly';points:number;week?:string;state:Record<string,{status:'claimed'|'done';by:string}>};
+export type Task={id:string;title:string;desc:string;type:'fixed'|'weekly'|'temporary';points:number;week?:string;state:Record<string,{status:'claimed'|'done';by:string}>};
 export type DB={users:User[];tasks:Task[];log:{user:string;pts:number;at:string}[]};
 export const DEFAULT_PW='87238723';
 export const hash=(p:string)=>{const s=crypto.randomBytes(8).toString('hex');return s+':'+crypto.scryptSync(p,s,32).toString('hex')};
 export const check=(p:string,h:string)=>{const[s,k]=h.split(':');return crypto.timingSafeEqual(crypto.scryptSync(p,s,32),Buffer.from(k,'hex'))};
 export const save=(d:DB)=>{fs.mkdirSync('data',{recursive:true});fs.writeFileSync(F,JSON.stringify(d,null,1))};
-export function load():DB{if(!fs.existsSync(F))save({users:[{username:'admin',name:'管理者',role:'admin',hash:hash(DEFAULT_PW),mustChange:true}],tasks:[],log:[]});return JSON.parse(fs.readFileSync(F,'utf8'))}
+export function load():DB{
+ if(!fs.existsSync(F))save({users:[{username:'admin',name:'管理者',role:'admin',hash:hash(DEFAULT_PW),mustChange:true}],tasks:[],log:[]});
+ const db:DB=JSON.parse(fs.readFileSync(F,'utf8'));
+ if(!db.users.some(u=>u.username==='whlee')){
+  db.users.push({username:'whlee',name:'管理者',role:'admin',hash:hash(DEFAULT_PW),mustChange:true});
+  save(db);
+ }
+ return db;
+}
 const day=(d:Date)=>d.toLocaleDateString('sv',{timeZone:'Asia/Taipei'});
 export const monthKey=(d=new Date())=>day(d).slice(0,7);
 export const today=()=>day(new Date());

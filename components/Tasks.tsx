@@ -1,6 +1,6 @@
 'use client';
 import {useCallback,useEffect,useState} from 'react';import {api} from '@/lib/api';
-type T={id:string;title:string;desc:string;type:'fixed'|'weekly';points:number;st:{status:string;by:string}|null};
+type T={id:string;title:string;desc:string;type:'fixed'|'weekly'|'temporary';points:number;st:{status:string;by:string}|null};
 export default function Tasks({me,onChange}:{me:{username:string;role:string};onChange:()=>void}){
 const [ts,setTs]=useState<T[]>([]);const [e,setE]=useState('');const [ed,setEd]=useState<T|null>(null);
 const [f,setF]=useState({title:'',desc:'',points:5,type:'weekly'});const admin=me.role==='admin';
@@ -22,7 +22,7 @@ return <div className="space-y-4"><div className="card"><div className="mb-1 fle
 {e&&<p className="text-sm text-red-600">{e}</p>}
 {admin&&<form className="card grid gap-2 md:grid-cols-4" onSubmit={async x=>{x.preventDefault();await act('tasks','POST',f);setF({...f,title:'',desc:''})}}>
 <input className="inp md:col-span-2" placeholder="任務名稱" value={f.title} onChange={x=>setF({...f,title:x.target.value})}/>
-<select className="inp" value={f.type} onChange={x=>setF({...f,type:x.target.value})}><option value="weekly">當周指派</option><option value="fixed">固定任務</option></select>
+<select className="inp" value={f.type} onChange={x=>setF({...f,type:x.target.value})}><option value="weekly">當周指派</option><option value="temporary">臨時任務</option><option value="fixed">固定任務</option></select>
 <input className="inp" type="number" min={0} value={f.points} onChange={x=>setF({...f,points:+x.target.value})}/>
 <textarea className="inp md:col-span-3" placeholder="任務內容" value={f.desc} onChange={x=>setF({...f,desc:x.target.value})}/><button className="btn">新增任務</button></form>}
-{sec('固定任務（每週自動刷新）','fixed')}{sec('當周指派任務','weekly')}</div>}
+{sec('固定任務','fixed')}{sec('每週任務','weekly')}{sec('臨時任務','temporary')}</div>}
