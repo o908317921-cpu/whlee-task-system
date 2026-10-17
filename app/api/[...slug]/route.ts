@@ -6,28 +6,31 @@ const PW=/^[A-Za-z0-9]{6,32}$/,UN=/^[A-Za-z0-9]{3,20}$/;
 const err=(m:string,s=400)=>R.json({error:m},{status:s});
 function who(req:NextRequest,db:DB){const c=req.cookies.get('s')?.value||'',i=c.lastIndexOf('.'),u=c.slice(0,i);return i>0&&sign(u)===c?db.users.find(x=>x.username===u):undefined}
 async function h(req:NextRequest,{params}:{params:{slug:string[]}}){
-const [a,b,c]=params.slug,db=load(),m=req.method,body:any=m==='GET'?{}:await req.json().catch(()=>({}));
+try{
+const [a,b,c]=params.slug,db=await load(),m=req.method,body:any=m==='GET'?{}:await req.json().catch(()=>({}));
 if(a==='board')return R.json(board(db));
 if(a==='login'){const un=String(body.username||'').trim(),pw=String(body.password||'');const u=db.users.find(x=>x.username===un);if(!u)return err('找不到此帳號，請確認帳號拼字。',404);let valid=false;try{valid=check(pw,u.hash)}catch{console.error('Login password hash is invalid for user:',un);return err('此帳號的密碼資料有問題，請管理員查看伺服器日誌。',500)}if(!valid)return err('密碼錯誤，請重新確認後再試。',401);const r=R.json({ok:1});r.cookies.set('s',sign(u.username),{httpOnly:true,sameSite:'lax',path:'/'});return r}
-if(a==='change-password'){const un=String(body.username||'').trim(),old=String(body.oldPassword||''),next=String(body.newPassword||'');const u=db.users.find(x=>x.username===un);if(!u)return err('找不到此帳號。',404);if(!PW.test(next))return err('新密碼需為 6–32 碼英文字母或數字。');if(next===DEFAULT_PW)return err('新密碼不可使用預設密碼。');let valid=false;try{valid=check(old,u.hash)}catch{console.error('Password hash is invalid for user:',un);return err('此帳號的密碼資料有問題，請管理員查看伺服器日誌。',500)}if(!valid)return err('目前密碼錯誤，無法更改。',401);u.hash=hash(next);u.mustChange=false;save(db);return R.json({ok:1})}
+if(a==='change-password'){const un=String(body.username||'').trim(),old=String(body.oldPassword||''),next=String(body.newPassword||'');const u=db.users.find(x=>x.username===un);if(!u)return err('找不到此帳號。',404);if(!PW.test(next))return err('新密碼需為 6–32 碼英文字母或數字。');if(next===DEFAULT_PW)return err('新密碼不可使用預設密碼。');let valid=false;try{valid=check(old,u.hash)}catch{console.error('Password hash is invalid for user:',un);return err('此帳號的密碼資料有問題，請管理員查看伺服器日誌。',500)}if(!valid)return err('目前密碼錯誤，無法提出申請。',401);if(db.passwordRequests.some(x=>x.username===un))return err('已有待管理員審核的更改密碼申請。');db.passwordRequests.push({id:crypto.randomUUID(),username:un,newHash:hash(next),createdAt:new Date().toISOString()});await save(db);return R.json({ok:1})}
 if(a==='logout'){const r=R.json({ok:1});r.cookies.delete('s');return r}
 const me=who(req,db);if(!me)return err('請先登入',401);
 const admin=me.role==='admin',wk=weekKey();
 if(a==='me')return R.json({username:me.username,name:me.name,role:me.role,mustChange:me.mustChange});
-if(a==='password'){const p=String(body.password||'');if(!PW.test(p))return err('密碼只能包含英文字母與數字，長度 6–32 碼');if(p===DEFAULT_PW)return err('新密碼不可與預設密碼相同');me.hash=hash(p);me.mustChange=false;save(db);return R.json({ok:1})}
+if(a==='password'){const p=String(body.password||'');if(!PW.test(p))return err('密碼只能包含英文字母與數字，長度 6–32 碼');if(p===DEFAULT_PW)return err('新密碼不可與預設密碼相同');if(db.passwordRequests.some(x=>x.username===me.username))return err('已有待管理員審核的更改密碼申請。');db.passwordRequests.push({id:crypto.randomUUID(),username:me.username,newHash:hash(p),createdAt:new Date().toISOString()});await save(db);return R.json({ok:1})}
+if(a==='password-requests'){if(!admin)return err('需要管理者權限',403);if(m==='GET')return R.json(db.passwordRequests.map(({newHash,...x})=>({...x,name:db.users.find(u=>u.username===x.username)?.name||x.username})));const q=db.passwordRequests.find(x=>x.id===b);if(!q)return err('找不到此申請',404);if(m==='POST'&&c==='approve'){const u=db.users.find(x=>x.username===q.username);if(!u)return err('找不到申請者帳號',404);u.hash=q.newHash;u.mustChange=false;db.passwordRequests=db.passwordRequests.filter(x=>x!==q);await save(db);return R.json({ok:1})}if(m==='POST'&&c==='reject'){db.passwordRequests=db.passwordRequests.filter(x=>x!==q);await save(db);return R.json({ok:1})}}
 if(a==='users'){if(!admin)return err('需要管理者權限',403);
  if(m==='GET')return R.json(db.users.map(({hash,...u})=>u));
  if(m==='POST'){const un=String(body.username||'');if(!UN.test(un))return err('帳號只能是 3–20 碼英文字母或數字');if(db.users.some(x=>x.username===un))return err('帳號已存在');
-  db.users.push({username:un,name:String(body.name||un).slice(0,20),role:body.role==='admin'?'admin':'member',hash:hash(DEFAULT_PW),mustChange:true});save(db);return R.json({ok:1})}}
+  db.users.push({username:un,name:String(body.name||un).slice(0,20),role:body.role==='admin'?'admin':'member',hash:hash(DEFAULT_PW),mustChange:true});await save(db);return R.json({ok:1})}}
 if(a==='tasks'){
  if(m==='GET')return R.json(db.tasks.filter(t=>t.type!=='temporary'||t.state[wk]?.status!=='done').map(({state,...t})=>({...t,st:state[wk]||null})));
  if(m==='POST'&&!b){if(!admin)return err('需要管理者權限',403);const type=body.type==='fixed'?'fixed':body.type==='temporary'?'temporary':'weekly';if(!String(body.title||'').trim())return err('請輸入任務名稱');
-  db.tasks.push({id:crypto.randomUUID(),title:String(body.title).slice(0,60),desc:String(body.desc||'').slice(0,500),type,points:Math.max(0,Number(body.points)||0),state:{}});save(db);return R.json({ok:1})}
+  db.tasks.push({id:crypto.randomUUID(),title:String(body.title).slice(0,60),desc:String(body.desc||'').slice(0,500),type,points:Math.max(0,Number(body.points)||0),state:{}});await save(db);return R.json({ok:1})}
  const t=db.tasks.find(x=>x.id===b);if(!t)return err('找不到任務',404);
- if(m==='PATCH'){if(!admin)return err('需要管理者權限',403);if(!String(body.title||'').trim())return err('請輸入任務名稱');t.title=String(body.title).slice(0,60);t.desc=String(body.desc||'').slice(0,500);t.points=Math.max(0,Number(body.points)||0);save(db);return R.json({ok:1})}
- if(m==='DELETE'){if(!admin)return err('需要管理者權限',403);db.tasks=db.tasks.filter(x=>x!==t);save(db);return R.json({ok:1})}
- if(m==='POST'&&c==='claim'){if(t.state[wk])return err('此任務本週已被領取');t.state[wk]={status:'claimed',by:me.username};save(db);return R.json({ok:1})}
- if(m==='POST'&&c==='complete'){const s=t.state[wk];if(!s||s.status!=='claimed'||s.by!==me.username)return err('只有領取者可以完成任務');s.status='done';db.log.push({user:me.username,pts:t.points,at:today()});if(t.type==='temporary')db.tasks=db.tasks.filter(x=>x!==t);save(db);return R.json({ok:1})}
- if(m==='POST'&&c==='release'){const s=t.state[wk];if(!s||s.status!=='claimed'||(s.by!==me.username&&!admin))return err('無法放棄此任務');delete t.state[wk];save(db);return R.json({ok:1})}}
-return err('Not found',404)}
+ if(m==='PATCH'){if(!admin)return err('需要管理者權限',403);if(!String(body.title||'').trim())return err('請輸入任務名稱');t.title=String(body.title).slice(0,60);t.desc=String(body.desc||'').slice(0,500);t.points=Math.max(0,Number(body.points)||0);await save(db);return R.json({ok:1})}
+ if(m==='DELETE'){if(!admin)return err('需要管理者權限',403);db.tasks=db.tasks.filter(x=>x!==t);await save(db);return R.json({ok:1})}
+ if(m==='POST'&&c==='claim'){if(t.state[wk])return err('此任務本週已被領取');t.state[wk]={status:'claimed',by:me.username};await save(db);return R.json({ok:1})}
+ if(m==='POST'&&c==='complete'){const s=t.state[wk];if(!s||s.status!=='claimed'||s.by!==me.username)return err('只有領取者可以完成任務');s.status='done';db.log.push({user:me.username,pts:t.points,at:today()});if(t.type==='temporary')db.tasks=db.tasks.filter(x=>x!==t);await save(db);return R.json({ok:1})}
+ if(m==='POST'&&c==='release'){const s=t.state[wk];if(!s||s.status!=='claimed'||(s.by!==me.username&&!admin))return err('無法放棄此任務');delete t.state[wk];await save(db);return R.json({ok:1})}}
+return err('Not found',404)
+}catch(ex){const message=ex instanceof Error?ex.message:'';console.error('API request failed:',ex);if(message.includes('Persistent database is not configured'))return err('部署環境未連接持久資料庫，因此 API 無法讀寫帳號與任務資料。請在 Vercel 設定 KV_REST_API_URL 與 KV_REST_API_TOKEN，並重新部署。',503);if(message.includes('Persistent database'))return err('持久資料庫連線或讀寫失敗，請確認 Vercel 的 KV_REST_API_URL 與 KV_REST_API_TOKEN，並查看 Function Logs。',503);return err('伺服器暫時無法處理請求。請查看 Vercel 的 Function Logs 以確認錯誤原因。',500)}}
 export const GET=h,POST=h,PATCH=h,DELETE=h;
